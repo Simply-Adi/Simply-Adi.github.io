@@ -36,8 +36,8 @@ For more details see [Basic writing and formatting syntax](https://docs.github.c
 Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/Simply-Adi/Simply-Adi.github.io/settings/pages). The name of this theme is saved in the Jekyll `_config.yml` configuration file. -->
 
 ### Get in Touch
-[![Linkedin](https://i.stack.imgur.com/gVE0j.png) LinkedIn](https://www.linkedin.com/)
+[![Linkedin](https://i.stack.imgur.com/gVE0j.png) LinkedIn](https://www.linkedin.com/in/thangjam-aditya-052208163/)
 &nbsp;
-[![GitHub](https://i.stack.imgur.com/tskMh.png) GitHub](https://github.com/)
+[![GitHub](https://i.stack.imgur.com/tskMh.png) GitHub](https://github.com/Simply-Adi)
 
 <!-- Having trouble with Pages? Check out our [documentation](https://docs.github.com/categories/github-pages-basics/) or [contact support](https://support.github.com/contact) and we’ll help you sort it out. -->
