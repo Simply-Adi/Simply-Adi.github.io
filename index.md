@@ -11,7 +11,7 @@ Here, I share glimpses of my journey into the World of Data Science and Energy A
 ### Automation for Academia
 
 
-1. **AutoCertiPy**
+1. **CertiPy**
 
 -Description: With the help of code pieces from Stackexchange, I wrote a code that automates printing details of certificate recepients on a given template. The template (high quality image) is generated from its pdf version, which is obtained from powerpoint file (where the certificate design happens). Here is the link to the same. 
 
