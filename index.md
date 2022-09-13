@@ -1,5 +1,5 @@
 
-Hello Peeps! Here, I share glimpses of my journey into the World of Data Science and Energy Analytics. 
+Hello Peeps! :smile: Here, I share glimpses of my journey into the World of Data Science and Energy Analytics. 
 
 <!-- ## Welcome to GitHub Pages
 
