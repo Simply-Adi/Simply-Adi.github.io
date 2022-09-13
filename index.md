@@ -6,7 +6,7 @@ Here, I share glimpses of my journey into the World of Data Science and Energy A
 
 
 
-Automation for Academia
+### Automation for Academia
 ```
 1. **AutoCertiPy**
 
