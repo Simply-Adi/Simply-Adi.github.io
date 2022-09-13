@@ -1,5 +1,14 @@
 
-Hello Peeps! :smile: Here, I share glimpses of my journey into the World of Data Science and Energy Analytics. 
+Hello Peeps! :smile: 
+
+Here, I share glimpses of my journey into the World of Data Science and Energy Analytics. 
+
+
+
+
+Automation for Academia
+
+1. With the help of code pieces from Stackexchange, I wrote a code that automates printing details of certificate recepients on a given template. The template is a high quality image generated from its pdf version, which is obtained from powerpoint file. Here is the link to the same. 
 
 <!-- ## Welcome to GitHub Pages
 
