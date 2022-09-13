@@ -10,11 +10,11 @@ Automation for Academia
 ```
 1. **AutoCertiPy**
 
--Description: With the help of code pieces from Stackexchange, I wrote a code that automates printing details of certificate recepients on a given template. The template is a high quality image generated from its pdf version, which is obtained from powerpoint file. Here is the link to the same. 
+-_Description_: With the help of code pieces from Stackexchange, I wrote a code that automates printing details of certificate recepients on a given template. The template is a high quality image generated from its pdf version, which is obtained from powerpoint file. Here is the link to the same. 
 
--Context: PhD students are frequently involved in organising conferences, wherein arranging certificates is an important activity. Manually inputting recepient details is a mechanical task. **AutoCertiPy** aims to eliminate the time spent in such task. 
+-_Context_: PhD students are frequently involved in organising conferences, wherein arranging certificates is an important activity. Manually inputting recepient details is a mechanical task. **AutoCertiPy** aims to eliminate the time spent in such task. 
 
--Ahead: I plan to make this into a GUI app. 
+-_Ahead_: I plan to make this into a GUI app. 
 ```
 
 <!-- ## Welcome to GitHub Pages
