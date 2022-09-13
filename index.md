@@ -1,10 +1,10 @@
 
 Hello Peeps! 
+:smile: 
 
 Here, I share glimpses of my journey into the World of Data Science and Energy Analytics. 
-```
-:smile: 
-```
+
+
 
 
 
