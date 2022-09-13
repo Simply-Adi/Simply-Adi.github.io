@@ -11,7 +11,7 @@ Here, I share glimpses of my journey into the World of Data Science and Energy A
 
 1. **AutoCertiPy**
 
--Description: With the help of code pieces from Stackexchange, I wrote a code that automates printing details of certificate recepients on a given template. The template is a high quality image generated from its pdf version, which is obtained from powerpoint file. Here is the link to the same. 
+-Description: With the help of code pieces from Stackexchange, I wrote a code that automates printing details of certificate recepients on a given template. The template (high quality image) is generated from its pdf version, which is obtained from powerpoint file (where the certificate design happens). Here is the link to the same. 
 
 -Context: PhD students are frequently involved in organising conferences, wherein arranging certificates is an important activity. Manually inputting recepient details is a mechanical task. **AutoCertiPy** aims to eliminate the time spent in such task. 
 
