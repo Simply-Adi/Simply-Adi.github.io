@@ -9,25 +9,11 @@ Here, I share glimpses of my journey into the World of Data Science and Energy A
 
 
 
+Some of my key data sceince projects are as follows:
 
+1. [Predicting Insurance Claims](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/Insurance_Policy_Project.pdf)
 
-### Automation for Academia
-
-
-1. **CertiPy**
-
--Description: With the help of code pieces from geeksforgeeks, I wrote a python script that automates printing details of certificate recepients on a given template. The template (high quality image) is generated from its pdf version, which is obtained from powerpoint file (where the certificate design happens). This pdf to template transformation happens inside the same script. Here is the [link]( https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/CertiPy.ipynb) to the same. 
-
--Context: PhD students are frequently involved in organising conferences, wherein arranging certificates is an important activity. Manually inputting recepient details is a mechanical task. **AutoCertiPy** aims to eliminate the time spent in such task. 
-
--Ahead: I plan to make this into a GUI app. 
-
-
-2. **FillnDownload**
-
-<!-- ## Welcome to GitHub Pages
-cheatsheets: https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet#links
-You can use the [editor on GitHub](https://github.com/Simply-Adi/Simply-Adi.github.io/edit/main/index.md) to maintain and preview the content for your website in Markdown files.
+3. [Statitical analysis of electricity demand of North East Indian States](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/NE_India_ElectricityDemand_Drivers_Profiles.pdf)
 
 Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
 
