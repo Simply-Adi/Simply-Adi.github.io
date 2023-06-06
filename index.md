@@ -15,7 +15,7 @@ Some of my key data sceince projects are as follows:
 
 3. [Statitical analysis of electricity demand of North East Indian States](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/NE_India_ElectricityDemand_Drivers_Profiles.pdf)
 4. Thangjam, A., Jaipuria, S., & Dadabada, P. K. (2023). Time-Varying approaches for Long-Term Electric Load Forecasting under economic shocks. Applied Energy, 333, 120602.
-. An overview of this paper is given here (https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/LTLF_economic_shocks_paper_deck.pptm)
+. An overview of this paper is given [here](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/LTLF_economic_shocks_paper_deck.pptm)
 
 
 
