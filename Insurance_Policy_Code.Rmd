@@ -1,0 +1,994 @@
+---
+title: "Classification of insurance policy holders into claimants and non-claimants"
+output: html_notebook
+author: "Thangjam Aditya, Naman Dubey and Semsang D.Bomzon"
+---
+
+-------------------------------
+Naming Convention
+A.xxxx where A is the case
+xxxx.p =predict() =probability
+xxxx.pred=prediction()
+xxxx.perf=performance()
+xx.tr=toggle output
+------------------------------------
+
+
+There are two controls- 
+1. for selecting cases of handling missing data- select_case()
+2. for selecting between balanced and imbalanced training data- toggle()
+----------------------------------------------------------------
+ROCR:performance(prediction,x)
+x is
+"ppv" for Precision.
+"tpr" for Recall.
+-------------------------------------------------
+
+```{r Setting Up}
+setwd("D:/DA_INS/Main")
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(ggplot2,ROCR,ROSE, lightgbm,data.table,caret,MASS,dplyr,car,Matrix,MLmetrics,rcompanion,glmnet,keras,recipes,corrr)
+#library(keras)
+#install_keras()
+```
+
+
+
+```{r Data Wrangling}
+ins=read.csv("InsuranceClaim.csv")
+#recoding -1 to NA
+ins[ins==-1]=NA
+#removing ID
+ins$id=NULL
+#making cat/bin variables factor class
+colnames(ins) # there are 57 potential predictor variables, 1 output, 1 ID
+var_name=data.frame("name"=colnames(ins[,-1]))
+
+
+#retrieving factor var names
+library(dplyr)
+  #nominal
+  fac_var1=filter(var_name, grepl('cat|bin', var_name$name))
+  #ordinal
+  df=data.frame("Is_Int"=sapply(ins,is.integer))
+  int_var=rownames(subset(df,df$Is_Int==TRUE))
+  fac_var2=filter(var_name,!grepl('cat|bin', var_name$name) & var_name$name %in%  int_var)
+
+# numeric var names
+num_var=filter(var_name,!grepl('cat|bin', var_name$name) & !var_name$name %in% int_var)
+#checking
+57-(length(fac_var1$name)+length(fac_var2$name)+length(num_var$name))
+#converting into factor
+#nominal
+ins[,fac_var1$name]=lapply(ins[,fac_var1$name],as.factor)
+#ordinal
+
+for (i in 1:length(fac_var2$name))
+{
+ ins[,fac_var2$name[i]]=factor( ins[,fac_var2$name[i]],ordered = TRUE, levels=min(na.omit(ins[,fac_var2$name[i]])):max(na.omit(ins[,fac_var2$name[i]])))
+}
+ins[,"target"]=as.factor(ins[,"target"])
+str(ins)
+```
+
+
+
+
+```{r Custom Functions}
+#---standard R function cannot compute appropriate correlation for mixed variable type
+mixed_assoc = function(df, cor_method="spearman", adjust_cramersv_bias=TRUE){
+  df_comb = expand.grid(names(df), names(df),  stringsAsFactors = F) %>% set_names("X1", "X2")
+  
+  is_nominal = function(x) class(x) %in% c("factor", "character")
+  
+  is_numeric <- function(x) { is.integer(x) || is_double(x)}
+  
+  f = function(xName,yName) {
+    x =  pull(df, xName)
+    y =  pull(df, yName)
+    
+    result = if(is_nominal(x) && is_nominal(y)){
+      cv = cramerV(as.character(x), as.character(y), bias.correct =TRUE)
+      data.frame(xName, yName, assoc=cv, type="cramersV")
+      
+    }else if(is_numeric(x) && is_numeric(y)){
+      correlation = cor(x, y, method=cor_method, use="complete.obs")
+      data.frame(xName, yName, assoc=correlation, type="correlation")
+      
+    }else if(is_numeric(x) && is_nominal(y)){
+      r_squared = summary(lm(x ~ y))$r.squared
+      data.frame(xName, yName, assoc=sqrt(r_squared), type="anova")
+      
+    }else if(is_nominal(x) && is_numeric(y)){
+      r_squared = summary(lm(y ~x))$r.squared
+      data.frame(xName, yName, assoc=sqrt(r_squared), type="anova")
+      
+    }else {
+      warning(paste("unmatched column type combination: ", class(x), class(y)))
+    }
+    
+    # finally add complete obs number and ratio to table
+    result %>% mutate(complete_obs_pairs=sum(!is.na(x) & !is.na(y)), complete_obs_ratio=complete_obs_pairs/length(x)) %>% rename(x=xName, y=yName)
+  }
+  
+  # apply function to each variable combination
+  map2_df(df_comb$X1, df_comb$X2, f)
+}
+#----------for instances where ordered factors are problematic----
+ord_to_fac=function(x)
+{
+  copy=data.frame(x)
+  copy[,names(copy) %in% fac_var2$name]=lapply(copy[,names(copy) %in% fac_var2$name],function(x) as.factor(as.character(x)))
+result=copy
+}
+
+#-----------back_to_ord-------------------
+
+back_to_ord=function(x)
+{
+temp=names(x[,names(x) %in% fac_var2$name])
+for (i in 1:length(temp))
+{
+ x[,temp[i]]=factor( x[,temp[i]],ordered = TRUE, levels=min(as.numeric(as.character(x[,temp[i]]))):max(as.numeric(as.character(x[,temp[i]]))))
+}
+return(x)
+}
+```
+
+
+```{r Finding weak predictor suspects}
+cat("Claim cases are", 100*(nrow(subset(ins,target==0))/nrow(ins)),"per cent")
+cat("Non-claim cases are", 100*(nrow(subset(ins,target==1))/nrow(ins))," per cent")
+
+
+fac_var=rbind(fac_var1,fac_var2)
+
+cor_cf1=vector(mode="double",length =length(fac_var$name))
+cor_mat1=data.frame()
+for (i in 1:length(fac_var$name))
+{
+  
+ cor_cf1[i]=cramerV(ins$target,ins[,fac_var$name[i]],bias.correct =TRUE)
+ cor_mat1[i,1]="target"
+ cor_mat1[i,2]=fac_var$name[i]
+ cor_mat1[i,3]=cor_cf1[i]
+ cor_mat1[i,4]="Cramer"
+}
+names(cor_mat1)=c("V1","V2","CorrCf","type")
+
+cor_cf2=vector(mode="double",length =length(num_var$name))
+cor_mat2=data.frame()
+for (i in 1:length(num_var$name))
+{
+  
+ cor_cf2[i]=summary(lm(ins[,num_var$name[i]]~ins$target))$r.squared
+ cor_mat2[i,1]="target"
+ cor_mat2[i,2]=num_var$name[i]
+ cor_mat2[i,3]=cor_cf2[i]
+ cor_mat2[i,4]="anova"
+}
+names(cor_mat2)=c("V1","V2","CorrCf","type")
+
+# see the variables with the weakest cf
+#write.csv(cor_mat1[with(cor_mat1,order(cor_mat1$CorrCf)),],"r1.csv")
+#write.csv(cor_mat2[with(cor_mat2,order(cor_mat2$CorrCf)),],"r2.csv")
+
+cat("Suspected weakest categorical predictors are ",cor_mat1[which(cor_mat1$CorrCf==0),"V2"],"\n")
+    
+cat("Suspected weakest numeric predictors are"    ,cor_mat2[which(cor_mat2$CorrCf<10^(-5)),"V2"])
+
+```
+"calc" features are suspected weakest predictors.
+It is decided that they are removed before any modelling.
+
+
+```{r}
+#names of calc features
+
+calc_var=filter(var_name, grepl('calc', var_name$name))
+
+```
+
+
+```{r Cases of Handling Missing Data}
+#--------------------Case A: Direct LD--------------------------------------------------
+
+
+ins_A=na.omit(ins[,!names(ins) %in% calc_var$name]) #calc variables removed
+str(ins_A)
+cat("Observation Loss is", 100*(1-(dim(ins_A)[1]/dim(ins)[1])),"per cent","\n")
+
+
+#---------Case B:Improvised LD---------------------------------
+#library(tidyverse)
+#ins.ld1=select(ins,c(-"ps_car_03_cat",-"ps_car_05_cat"))
+#dim(na.omit(ins.ld1))
+
+ins_B=na.omit(ins[,!names(ins) %in% c("ps_car_03_cat","ps_car_05_cat")])
+ins_B=ins_B[,!names(ins_B) %in% calc_var$name]
+#check missing values # remove calc variables
+sapply(ins_B, function(x) sum(is.na(x)))
+cat("Observation Loss is", 100*(1-(dim(ins_B)[1]/dim(ins)[1])),"per cent","\n")
+
+
+
+#-----------------Case C:Using MICE--------------------------
+library(mice)
+mv=data.frame("MV"=sapply(ins[,-1], function(x) sum(is.na(x))),"MV_percent"=sapply(ins[,-1], function(x) (100*sum(is.na(x))))/nrow(ins),t(data.frame(lapply(ins[,-1],class))[1,]))
+colnames(mv)[3]="class"
+# ps_car_03_cat","ps_car_05_cat" have 69% and 47 % MV, association with target are 0.01138 and 0.00000
+cor_mat1[which(cor_mat1$V2=="ps_car_03_cat"|cor_mat1$V2=="ps_car_05_cat"),"CorrCf"] 
+#write.csv(mv,"mv.csv")
+mv.top=head(mv[order(-mv$MV_percent),],5)
+mv.top=data.frame("Var"=rownames(mv.top),mv.top)
+rownames(mv.top)=NULL
+
+ggplot(mv.top,aes(reorder(Var,MV_percent),MV_percent))+geom_bar(fill="red",stat="identity")+coord_flip()+theme_minimal()+xlab("Top Five Missing Data Variables")+ylab("Missing Value as Per Cent of Total Observations")
+
+
+mvi.cat=which(mv$MV!=0 & grepl("factor|ordered",mv$class))
+mvi.num=which(mv$MV!=0 & !grepl("factor|ordered",mv$class))
+nmi=which(mv$MV==0)
+ss1=subset(rownames(mv[mvi.cat,]),!rownames(mv[mvi.cat,])%in%c("ps_car_03_cat","ps_car_05_cat"))
+ss2=subset(rownames(mv[nmi,]),!rownames(mv[nmi,])%in%c("target"))
+# variables excluded from imputation
+outlist=c(ss2,c("ps_car_03_cat","ps_car_05_cat"),"id") #includes target
+#outlist2=c(ss2,"id") 
+ins.imp=ins[,!names(ins) %in% outlist]
+lapply(ins.imp,class)
+#dry run
+init = mice(ins.imp, maxit=0)
+pred=quickpred(ins.imp,minpuc = 0.5) #minpuc sets max MV pc to 50, min usable cases to 50 pc
+#meth = init$method
+#meth[ss]="polyreg"
+#meth[rownames(mv[mvi.num,])]="pmm"
+imp.op= mice(ins.imp,predictorMatrix=pred, maxit=3,m=3,printFlag = TRUE) 
+save.image()  
+imp1=complete(imp.op)
+#merging&replacing without affecting parent data
+fill_mv<-function(x,y)
+{
+  copy=data.frame(x)
+  copy[,names(y)]=imp1[,names(y)]
+  result=copy
+} 
+ins_C1=temp=fill_mv(ins,imp1)
+ins_C=ins_C1[,!names(ins_C1) %in% c(calc_var$name,"id")]
+ins_C=na.omit(ins_C)
+sapply(ins_C, function(x) sum(is.na(x)))
+cat("Observation Loss is", 100*(1-(dim(ins_C)[1]/dim(ins)[1])),"per cent")
+
+```
+
+
+#Start here
+```{r Select case to analyze}
+case_select=function(x)
+{
+  if(x=="A")
+  { return(ins_A)}
+  if(x=="B")
+  { return(ins_B)}
+  if(x=="C")
+  { return(ins_C)}
+}
+data=case_select("B") #A or B or C
+
+```
+
+
+
+```{r Divide Data}
+#consider removing predictors that have zero variance
+library(caret)
+#nearZeroVar(data[,-1],saveMetrics = TRUE)
+
+#partitioning
+set.seed(97)
+rec=createDataPartition(data$target,p=2/3,list=F)
+train=data[rec,]
+val=data[-rec,]
+
+cat("Train data has",table(train$target)[2]*100/sum(table(train$target))," % class-1","\n")
+cat("Train data has",table(train$target)[1]*100/sum(table(train$target))," % class-0")
+```
+
+
+
+```{r Balancing and PCA}
+library(ROSE) # ordered factors are not accepted
+
+train.bal=ord_to_fac(train) 
+train.bal=ROSE(target~ ., data =train.bal, seed = 97)$data
+train.bal=back_to_ord(train.bal)
+cat("Balanced train data has",100*table(train.bal$target)[2]/sum(table(train.bal$target)),"% class-1 cases")
+table(train.bal$target)
+```
+
+
+
+```{r Balance switch}
+#Switch between balanced and unbalanced train data
+#1 for balance,0 for unbalance
+p=0
+toggle=function(x)
+{
+  if(x==1)
+  { cat("balanced data in use")
+  invisible(train.bal) 
+  }
+  else {
+    cat("unbalanced data in use")
+  invisible(train)
+  }
+}
+
+tr=toggle(p)
+table(tr$target)
+
+```
+
+ROSE output is used only for logreg and en. For other models,p can take only 0
+
+
+
+```{r PCA}
+train.mat=as.matrix(ord_to_fac(tr))
+mode(train.mat)="numeric"
+
+
+#find linearly dependent columns-----------------
+rankifremoved <- sapply(1:ncol(train.mat), function (x) qr(train.mat[,-x])$rank)
+ld.ind=which(rankifremoved == max(rankifremoved))
+ld.ind
+ld.names=colnames(train.mat[,ld.ind])
+ld.names
+
+
+
+#pca-----
+pca=prcomp(train.mat[,-1],scale=TRUE)
+#finding no. of PC------------
+pca.imp=summary(pca)$importance
+plot(pca.imp[2,],ylab="Prop of Var",xlab="PC")
+plot(pca.imp[3,],ylab="Cum Prop of Var",xlab="PC")
+train.pca=data.frame("target"=train.mat[,1],pca$x)
+train.pca=train.pca[,1:34] # 33 PC+target
+table(train.pca$target)
+#saveRDS(pca$rotation,"B_unb_pca.rds")
+
+#PC for val data
+val.mat=as.matrix(ord_to_fac(val))
+mode(val.mat)="numeric"
+val.pca=data.frame(predict(pca,newdata=val.mat[,-1]))
+val.pca=data.frame("target"=val$target,val.pca[,1:33]) 
+
+```
+
+
+
+
+```{r Logistic Regression}
+#LogReg using PC-------------
+library(MASS)
+train.pca$target=as.factor(train.pca$target)
+gc(verbose = F)
+#fitting
+log1=stepAIC(glm(target~.,data=train.pca,family="binomial"),direction="both")
+car::vif(log1)
+#saving
+saveRDS(log1,"bal_pca_logreg.rds") 
+#log1=readRDS("unb_pca_logreg.rds")
+
+#VarImp
+log1.imp=data.frame("Var"=rownames(varImp(log1,scale=TRUE)),"VarImp"=varImp(log1,scale=TRUE))
+
+ggplot(log1.imp,aes(reorder(Var,Overall),Overall))+geom_bar(stat="identity")+coord_flip()+theme_bw()+xlab("Predictors")+ylab("Variable Importance")
+
+
+#p-based metrics
+library(ROCR)
+
+log1.p=predict(log1,newdata =val.pca,type="response")
+
+log1.pred=prediction(log1.p,val.pca$target)
+2*(AUC(log1.p,val.pca$target))-1
+log1.perf=performance(log1.pred,"f") #"lift","rpp","tpr","fpr"
+
+plot(log1.perf)
+# #colorize=T,main="ROC plot for LogReg with PCA"
+abline(a=0,b=1)
+
+library(MLmetrics)
+LogLoss(predict(log1,train.pca,type="response"),train.mat[,1])
+LogLoss(log1.p,val.mat[,1])
+
+
+
+#cut-off based metrics
+summary(log1.p)
+log1.tab=table(ifelse(log1.p>0.057,1,0),val.pca$target)
+log1.com=caret::confusionMatrix(log1.tab,positive="1")
+log1.com$overall
+log1.com$byClass
+#---------------------------------------------------------------
+#LogReg2-Using original predictors (abandoned because stepAIC takes forever while rfe does not work)
+
+#fit=glm(target~.,data=tr,family="binomial")# runs into collinearity problem..found out aliased vars using vif()
+#car::vif(fit)
+
+
+outlist=c(ld.names,"ps_ind_09_bin")
+
+
+#log2=glm(target~.,data=tr[,!names(tr) %in% outlist ],family="binomial")
+
+#summary(log2)
+
+#log2.imp=varImp(log2,scale=TRUE)
+#log2.imp=data.frame("Var"=rownames(log2.imp),"VarImp"=log2.imp$Overall)
+
+#log2.imp=log2.imp[order(-log2.imp$VarImp),]
+#tail(log2.imp,10)
+
+
+# if there are still aliased
+#attributes(alias(fit)$Complete)$dimnames[[1]]
+#car::vif(log2)
+
+#temp=varImp(A.log2,scale=TRUE)
+
+#log2.p=predict(log2,val,type="response")
+#log2.pred=prediction(log2.p,val$target)
+#log2.perf=performance(log2.pred,"tpr","fpr")
+#plot(log2.perf,colorize=TRUE)
+#LogLoss(log2.p,as.numeric(as.factor(val$target)))
+```
+
+
+
+
+
+```{r Elastic Net}
+library(glmnet)
+#Using PC
+train.pca$target=as.factor(train.pca$target)
+
+#fitting
+custom1=trainControl(method="repeatedcv",number=5,verboseIter = F)
+
+glm1=train(target~.,train.pca,method="glmnet",tuneGrid=expand.grid(alpha=seq(0,1,length=3),lambda=seq(0.0001,1,length=3)),trControl=custom1)
+
+glm1$bestTune
+coef(glm1$finalModel,s=glm1$bestTune$lambda)
+
+#saving
+saveRDS(glm1,"b_PCA_glm.RDS")
+#glm1=readRDS("unb_PCA_glm.RDS")
+#VarImp
+glm1.imp=varImp(glm1,scale=TRUE)
+glm1.imp=glm1.imp[["importance"]]
+glm1.imp=data.frame("Var"=rownames(glm1.imp),"VarImp"=glm1.imp$Overall)
+glm1.imp=glm1.imp[with(glm1.imp,order(glm1.imp$VarImp,decreasing=T)),]
+glm1.imp=head(glm1.imp,n=20)
+ggplot(glm1.imp,aes(reorder(Var,VarImp),VarImp))+geom_bar(stat="identity")+coord_flip()+xlab("Predictors")+ylab("Importance")+ggtitle("For Elastic Net")+theme_bw()
+
+#p-based metrics
+glm1.p=predict(glm1,val.pca,type="prob")
+glm1.pred=ROCR::prediction(glm1.p[,2],val.pca$target)
+glm1.perf=performance(glm1.pred,"f") #"tpr","fpr"
+
+plot(glm1.perf,colorize=T) #colorize=T
+abline(a=0,b=1)
+
+2*AUC(glm1.p[,2],val.pca$target)-1
+
+
+
+LogLoss(predict(glm1,train.pca,type="prob")[,2],as.numeric(as.character(train.pca$target)))
+LogLoss(glm1.p[,2],as.numeric(as.character(val.pca$target)))
+
+#cut-off based metrics
+summary(glm1.p)
+glm1.tab=table(ifelse(glm1.p[,2]>0.045,1,0),val.pca$target)
+glm1.com=caret::confusionMatrix(glm1.tab,positive="1")
+glm1.com$overall
+glm1.com$byClass
+
+#Using original predictors---------------------------------
+
+tr$target=as.factor(tr$target)
+
+#fitting
+custom2=trainControl(method="repeatedcv",number=5,verboseIter = F)
+glm2=train(target~.,tr[,!names(tr) %in% outlist],method="glmnet",tuneGrid=expand.grid(alpha=seq(0,1,length=3),lambda=seq(0.0001,1,length=3)),trControl=custom2)
+
+glm2$bestTune
+coef(glm2$finalModel,s=glm2$bestTune$lambda)
+#saving
+saveRDS(glm2,"unb_ori_glm.RDS")
+#glm2=readRDS("unb_ori_glm.RDS")
+
+#VarImp
+glm2.imp=varImp(glm2,scale=TRUE)
+glm2.imp=glm2.imp[["importance"]]
+glm2.imp=data.frame("Var"=rownames(glm2.imp),"VarImp"=glm2.imp$Overall)
+glm2.imp=glm2.imp[with(glm2.imp,order(glm2.imp$VarImp,decreasing=T)),]
+glm2.imp=head(glm2.imp,n=20)
+ggplot(glm2.imp,aes(reorder(Var,VarImp),VarImp))+geom_bar(stat="identity")+coord_flip()+xlab("Predictors")+ylab("Importance")+ggtitle("For Elastic Net")+theme_bw()
+
+
+#p-based metrics
+glm2.p=predict(glm2,val[,!names(val) %in% outlist],type="prob")
+glm2.pred=ROCR::prediction(glm2.p[,2],val$target)
+glm2.perf=performance(glm2.pred,"f") #"tpr","fpr"
+
+plot(glm2.perf,colorize=T) #colorize=T
+abline(a=0,b=1)
+
+2*AUC(glm2.p[,2],val$target)-1
+
+
+LogLoss(predict(glm2,tr[,!names(tr) %in% outlist],type="prob")[,2],as.numeric(as.character(tr$target)))
+LogLoss(glm2.p[,2],as.numeric(as.character(val$target)))
+
+
+
+#Cut-off based metrics
+glm2.tab=table(ifelse(glm2.p[,2]>0.046,1,0),val$target)
+glm2.com=caret::confusionMatrix(glm2.tab,positive="1")
+glm2.com$overall
+glm2.com$byClass
+```
+
+
+
+
+
+```{r LGB}
+library(lightgbm)
+#---------------------LGB1-Using PC#--------------------------
+toggle(p)
+
+table(train.pca$target) # second-check
+
+#ensure target is numeric,gives num whatever be the type of input
+train.pca$target=as.numeric(as.character(train.pca$target))
+val.pca$target=as.numeric(as.character(val.pca$target))
+
+#Construct training and validation data
+lgb1.train=sparse.model.matrix(target~., data =train.pca)
+lgb1.val =sparse.model.matrix(target~., data=val.pca)
+
+lgb1.train_mat = lgb.Dataset(data = as.matrix(lgb1.train), label =train.pca$target)
+lgb1.val_mat= lgb.Dataset(data = as.matrix(lgb1.val), label =val.pca$target)
+
+valid1 = list(test =lgb1.val_mat)
+
+#lgb1.col=lgb1.train_mat$get_colnames()
+#lgb1.col
+
+#fitting
+# model parameters
+lgb1.gridS =expand.grid(min_sum_hessian_in_leaf =c(0.05,0.5,1),
+                          feature_fraction =c(0.6,0.7,0.8), 
+                          bagging_fraction =c(0.6,0.7,0.8), 
+                          bagging_freq =c(2,4), 
+                          lambda_l1 =c(0.2,0.4,1), 
+                          lambda_l2 = c(0.2,0.4,1), 
+                          min_data_in_bin=100,
+                          min_gain_to_split = c(0.5,1,2), 
+                          min_data_in_leaf =c(1000,1500)
+                         )
+perf1=numeric(nrow(lgb1.gridS))
+
+for(i in 1:nrow(lgb1.gridS))
+{        
+        lgb1 =lightgbm(params = list(objective = "binary",
+                      metric="binary_logloss",
+                      min_sum_hessian_in_leaf=lgb1.gridS[i,"min_sum_hessian_in_leaf"],
+                      feature_fraction =lgb1.gridS[i,"feature_fraction"], 
+                      bagging_fraction =lgb1.gridS[i,"bagging_fraction"], 
+                      bagging_freq =lgb1.gridS[i,"bagging_freq"], 
+                      lambda_l1 =lgb1.gridS[i,"lambda_l1"], 
+                      lambda_l2 = lgb1.gridS[i,"lambda_l2"],
+                      min_data_in_bin=lgb1.gridS[i,"min_data_in_bin"],
+                      min_gain_to_split =lgb1.gridS[i,"min_gain_to_split"], 
+                      min_data_in_leaf = lgb1.gridS[i,"min_data_in_leaf"],
+                      is_unbalance=as.logical(1-p)),
+                      data=lgb1.train_mat,
+                      learning_rate=0.02,
+                      num_leaves = 15,
+                      valids=valid1, 
+                      nrounds =2) #categorical features are to be declared inside IFF the input data is not properly tagged
+        cat("running iteration:",i)
+perf1[i]=min(rbindlist(lgb1$record_evals$test$binary_logloss))
+gc(verbose=FALSE)
+}
+
+
+#optimal parameters
+min(perf1)
+lgb1.gridS[which.min(perf1),]
+cat("Choose Model",which.min(perf1))
+k1=which.min(perf2)
+
+lgb1.grid=list(objective = "binary",
+                metric="binary_logloss",
+                min_sum_hessian_in_leaf=lgb2.gridS[k1,"min_sum_hessian_in_leaf"],
+                feature_fraction =lgb2.gridS[k1,"feature_fraction"], 
+                bagging_fraction =lgb2.gridS[k1,"bagging_fraction"], 
+                bagging_freq =lgb2.gridS[k1,"bagging_freq"], 
+                lambda_l1 =lgb2.gridS[k1,"lambda_l1"], 
+                lambda_l2 = lgb2.gridS[k1,"lambda_l2"], 
+                min_data_in_bin=lgb2.gridS[k1,"min_data_in_bin"],
+                min_gain_to_split =lgb2.gridS[k1,"min_gain_to_split"], 
+                min_data_in_leaf = lgb2.gridS[k1,"min_data_in_leaf"],
+                is_unbalance=as.logical(1-p))
+
+lgb1 =lightgbm(params =lgb1.grid ,
+                data=lgb1.train_mat,
+                learning_rate=0.02,
+                early_stopping_rounds=10, 
+                num_leaves = 15,
+                valids=valid1, 
+                nrounds =lgb1[["best_iter"]])
+
+#saving
+saveRDS.lgb.Booster(lgb1,"unb_pca_lgb.rds")
+#lgb1=readRDS.lgb.Booster("unb_pca_lgb.rds")
+
+#VarImp-------------
+
+lgb1.imp=lgb.importance(lgb1,percentage = TRUE)
+lgb.plot.importance(lgb1.imp)
+
+
+#p-based metrics --------------
+lgb1.p=predict(lgb1,lgb1.val)
+lgb1.pred=prediction(lgb1.p,as.factor(val.pca$target))
+lgb1.perf=performance(lgb1.pred,"f")
+
+plot(lgb1.perf) #colorize=T
+abline(a=0,b=1)
+LogLoss(lgb1.p,val.pca$target)
+
+2*AUC(lgb1.p,val.pca$target)-1
+
+#cut-off based metrics
+summary(lgb1.p)
+lgb1.tab=table(ifelse(lgb1.p>0.056,1,0),val.pca$target)
+lgb1.com=caret::confusionMatrix(lgb1.tab,positive="1")
+lgb1.com$overall
+lgb1.com$byClass
+
+
+#--------------------#LGB2-Using Original Predictors----
+
+tr$target=as.numeric(as.character(tr$target))
+val$target=as.numeric(as.character(val$target))
+
+#Construct training and validation data
+lgb2.train= sparse.model.matrix(target~., data =tr[,!names(tr) %in% outlist])
+lgb2.val = sparse.model.matrix(target~., data=val[,!names(val) %in% outlist])
+
+lgb2.train_mat= lgb.Dataset(data = as.matrix(lgb2.train), label =tr$target,free_raw_data = FALSE)
+lgb2.val_mat = lgb.Dataset(data = as.matrix(lgb2.val), label =val$target)
+
+valid2 = list(test =lgb2.val_mat)
+lgb2.col=lgb2.train_mat$get_colnames()
+
+#fitting
+#expand.grid to build grid search- all possible combinations of input values
+lgb2.gridS =expand.grid(min_sum_hessian_in_leaf =c(0.05,0.5,1),
+                          feature_fraction =c(0.6,0.7,0.8), 
+                          bagging_fraction =c(0.6,0.7,0.8), 
+                          bagging_freq =c(2,4), 
+                          lambda_l1 =c(0.2,0.4,1), 
+                          lambda_l2 = c(0.2,0.4,1), 
+                          min_data_in_bin=100,
+                          min_gain_to_split = c(0.5,1,2), 
+                          min_data_in_leaf =c(1000,1500)
+                         )
+
+perf2=numeric(nrow(lgb2.gridS)) # empty numeric,same row num as gridS
+
+
+
+for(i in 1:nrow(lgb2.gridS))
+{        
+        lgb2 =lightgbm(params = list(objective = "binary",
+                metric="binary_logloss",
+                min_sum_hessian_in_leaf=lgb2.gridS[i,"min_sum_hessian_in_leaf"],
+                feature_fraction =lgb2.gridS[i,"feature_fraction"], 
+                bagging_fraction =lgb2.gridS[i,"bagging_fraction"], 
+                bagging_freq =lgb2.gridS[i,"bagging_freq"], 
+                lambda_l1 =lgb2.gridS[i,"lambda_l1"], 
+                lambda_l2 = lgb2.gridS[i,"lambda_l2"],
+                min_data_in_bin=lgb2.gridS[i,"min_data_in_bin"],
+                min_gain_to_split =lgb2.gridS[i,"min_gain_to_split"], 
+                min_data_in_leaf = lgb2.gridS[i,"min_data_in_leaf"],
+                is_unbalance=as.logical(1-p)),
+                data=lgb2.train_mat,
+                learning_rate=0.02,
+                num_leaves = 15,
+                valids=valid2, 
+                nrounds =2) #categorical features are to be declared inside IFF the input data is not properly tagged
+        cat("running iteration:",i)
+perf2[i]=min(rbindlist(lgb2$record_evals$test$binary_logloss))
+gc(verbose=FALSE)
+}
+
+
+  #optimal parameters
+min(perf2)
+lgb2.gridS[which.min(perf2),]
+cat("Choose Model",which.min(perf2))
+k=which.min(perf2)
+lgb2.grid=list(objective = "binary",
+                metric="binary_logloss",
+                min_sum_hessian_in_leaf=lgb2.gridS[k,"min_sum_hessian_in_leaf"],
+                feature_fraction =lgb2.gridS[k,"feature_fraction"], 
+                bagging_fraction =lgb2.gridS[k,"bagging_fraction"], 
+                bagging_freq =lgb2.gridS[k,"bagging_freq"], 
+                lambda_l1 =lgb2.gridS[k,"lambda_l1"], 
+                lambda_l2 = lgb2.gridS[k,"lambda_l2"], 
+                min_data_in_bin=lgb2.gridS[k,"min_data_in_bin"],
+                min_gain_to_split =lgb2.gridS[k,"min_gain_to_split"], 
+                min_data_in_leaf = lgb2.gridS[k,"min_data_in_leaf"],
+                is_unbalance=as.logical(1-p))
+
+
+lgb2 =lightgbm(params =lgb2.grid ,
+                data=lgb2.train_mat,
+                learning_rate=0.02,
+                early_stopping_rounds=10, 
+                num_leaves = 15,
+                valids=valid2, 
+                nrounds =lgb2[["best_iter"]])
+
+#saving
+saveRDS.lgb.Booster(lgb2,"unb_ori_lgb.rds")
+#lgb2=readRDS.lgb.Booster("unb_ori_lgb.rds")
+
+#varimp----------------
+lgb2.imp=lgb.importance(lgb2,percentage = TRUE)
+lgb.plot.importance(lgb2.imp)
+
+#p-based metrics------------
+lgb2.p=predict(lgb2,lgb2.val)
+lgb2.pred=prediction(lgb2.p,as.factor(val$target))
+lgb2.perf=performance(lgb2.pred,"f")
+
+plot(lgb2.perf) #colorize=T
+abline(a=0,b=1)
+LogLoss(lgb2.p,val$target)
+
+2*AUC(lgb2.p,val$target)-1
+
+#cut-off based metrics
+lgb2.tab=table(ifelse(lgb2.p>0.056,1,0),val$target)
+lgb2.com=caret::confusionMatrix(lgb2.tab,positive="1")
+lgb2.com$overall
+lgb2.com$byClass
+#---
+p_conso=data.frame("lgb1.p"=lgb1.p,"lgb2.p"=lgb2.p)
+write.csv(p_conso,"C_p_conso.csv")
+```
+
+
+```{r ANN}
+library(keras)
+
+#ANN using PCA--------------------------
+
+#Construct training and validation data
+tr.nmat1=as.matrix(train.pca)
+mode(tr.nmat1)="numeric"
+dimnames(tr.nmat1)=NULL
+tr.nmat1[,-1]=normalize(tr.nmat1[,-1]) #input must be numeric
+dim(tr.nmat1)
+
+
+val.nmat1=as.matrix(val.pca)
+mode(val.nmat1)="numeric"
+dimnames(val.nmat1)=NULL
+val.nmat1[,-1]=normalize(val.nmat1[,-1])
+dim(val.nmat1)
+
+#fitting
+#model architecture
+nn1=keras_model_sequential()
+nn1%>%
+        layer_dense(units = 10, activation = 'relu', input_shape = c(33)) %>%
+        layer_dropout(rate = 0.2) %>% 
+        layer_dense(units = 1, activation = 'sigmoid') #softmax does not work
+summary(nn1) # n(hlnode)xn(inlnode)+(biases=n(hlnode)
+
+#Compiling
+nn1 %>%
+compile(loss = "binary_crossentropy",
+optimizer =optimizer_adam(lr=0.0001),
+metrics = "binary_accuracy")
+
+nn1.h=nn1 %>% #training history
+fit(tr.nmat1[,-1],
+tr.nmat1[,1],
+epochs = 100,#till leveling and minimal divergence, for integer coded=50
+batch_size = 128,
+validation_split = 1/3,
+class_weight=list("0"=1,"1"=1.1)) #  play with weights
+plot(nn1.h)
+
+
+#saving
+saveRDS(serialize_model(model=nn1,include_optimizer = TRUE),"pca_nn_mod.rds")
+#nn1=readRDS("pca_nn_mod.rds")
+#nn1=unserialize_model(nn1)
+
+#p-based metrics
+nn1%>% evaluate(tr.nmat1[,-1],tr.nmat1[,1])
+nn1%>% evaluate(val.nmat1[,-1],val.nmat1[,1])
+
+nn1.p=nn1%>%predict_proba(val.nmat1[,-1])
+2*AUC(nn1.p,val.pca$target)-1
+
+nn1.pred=ROCR::prediction(nn1.p,val.nmat1[,1])
+nn1.perf=ROCR::performance(nn1.pred,"f")
+
+#plot(nn1.perf,colorize=T)
+#abline(a=0,b=1)
+
+
+#cut-off based metrics
+summary(nn1.p)
+nn1.tab=table(ifelse(nn1.p>0.0729,1,0),val$target)
+nn1.tab
+nn1.com=caret::confusionMatrix(nn1.tab,positive="1")
+nn1.com$overall
+nn1.com$byClass
+
+
+
+#ANN using original predictors---------------
+tr$target=as.factor(tr$target)
+val$target=as.factor(val$target)
+
+#Construct training and validation data
+library(recipes)
+rec_obj=recipe(target~.,data=tr[,!names(tr) %in% outlist])%>%
+        step_dummy(all_nominal(), -all_outcomes())%>%
+        prep(data=tr[,!names(tr) %in% outlist])
+nn.tr_lab=as.numeric(as.character(tr$target))
+tr.enc=bake(rec_obj, new_data =tr[,!names(tr) %in% outlist])%>%select(-target)
+
+nn.val_lab=as.numeric(as.character(val$target))
+val.enc=bake(rec_obj, new_data =val[,!names(val) %in% outlist])%>%select(-target)
+
+#matrix conversion
+tr.nmat2=as.matrix(tr.enc)
+mode(tr.nmat2)="numeric"
+dimnames(tr.nmat2)=NULL
+tr.nmat=normalize(tr.nmat2) #input must be numeric
+dim(tr.nmat2)
+
+
+val.nmat2=as.matrix(val.enc)
+mode(val.nmat2)="numeric"
+dimnames(val.nmat2)=NULL
+val.nmat2=normalize(val.nmat2)
+dim(val.nmat2)
+
+#fitting
+#Model architecture
+nn2=keras_model_sequential()
+nn2%>%
+       layer_dense(units = 10, activation = 'relu', input_shape = c(dim(tr.nmat2)[2])) %>%
+        layer_dropout(rate = 0.2) %>% 
+        layer_dense(units = 1, activation = 'sigmoid') 
+summary(nn2) # n(hlnode)xn(inlnode)+(biases=n(hlnode)
+
+
+#Compiling
+nn2 %>%
+compile(loss = "binary_crossentropy",
+optimizer =optimizer_adam(lr=0.0001),
+metrics = "binary_accuracy")
+
+nn2.h=nn2 %>% #training history
+fit(tr.nmat2,
+nn.tr_lab,
+epochs = 100,#till leveling and minimal divergence
+batch_size = 128,
+validation_split = 1/3,
+class_weight=list("0"=1,"1"=1.1)) #  play with weights
+
+
+#saving
+saveRDS(serialize_model(model=nn2,include_optimizer = TRUE),"ori_nn_mod.rds")
+#nn2=readRDS("ori_nn_mod.rds")
+#nn2=unserialize_model(nn2)
+
+
+
+plot(nn2.h)
+
+#p-based metrics
+nn2%>% evaluate(tr.nmat2,nn.tr_lab)
+nn2%>% evaluate(val.nmat2,nn.val_lab)
+
+nn2.p=nn2%>%predict_proba(val.nmat2)
+
+nn2.pred=ROCR::prediction(nn2.p,nn.val_lab)
+nn2.perf=ROCR::performance(nn2.pred,"f")
+
+plot(nn2.perf,colorize=T)#,colorize=T
+abline(a=0,b=1)
+
+2*AUC(nn2.p,val$target)-1
+
+#cut-off based metrics
+nn2.tab=table(ifelse(nn2.p>0.137,1,0),val$target)
+nn2.com=caret::confusionMatrix(nn2.tab,positive="1")
+nn2.com$overall
+nn2.com$byClass
+```
+
+
+
+
+```{r Combined Roc Plots}
+
+preds <- cbind(p1=log1.p,
+               p2=glm1.p[,2],
+               p3=glm2.p[,2],
+               p4 =lgb1.p,
+               p5 =lgb2.p,
+               p6=nn1.p,
+               p7=nn2.p)
+
+rtrv=read.csv("A_unb.csv")
+
+preds <- cbind(p1=rtrv$p1,
+               p2=rtrv$p2,
+               p3=rtrv$p3,
+               p4 =rtrv$p4,
+               p5 =rtrv$p5,
+               p6=rtrv$p6,
+               p7=rtrv$p7)
+
+pred.mat <- prediction(preds, labels = matrix(as.factor(val$target), 
+                nrow = length(val$target), ncol = 7) )
+
+perf.mat <- performance(pred.mat, "lift","rpp") # for lift lift and rpp
+plot(perf.mat,col=as.list(1:7),ylim=c(0,3))
+minor.tick(ny=5)
+abline(a=1,b=0)  # b is slope , a intercept
+legend(x = "bottomright", 
+       legend = c("logreg","en1","en2","LGB1","LGB2","nn1","nn2"),
+       fill = 1:7)
+
+```
+
+```{r}
+final=data.frame(p1=log1.p,
+               p2=glm1.p[,2],
+               p3=glm2.p[,2],
+               p4 =lgb1.p,
+               p5 =lgb2.p,
+               p6=nn1.p,
+               p7=nn2.p,
+               "actual"=val$target)
+write.csv(final,"C_unb.csv")
+#final=final%>%mutate(combo=rowMeans(.[1:7]))
+#LogLoss(final$combo,as.numeric(as.character(final$actual)))
+
+```
+
+```{r}
+#see the highest f, check neighbourhood cut-off values
+#temp=data.frame("coff"=lgb2.perf@x.values[[1]],"f"=lgb2.perf@y.values[[1]])
+#temp=temp[order(-temp$f),]
+
+```
+
