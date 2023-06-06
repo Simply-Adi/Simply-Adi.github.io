@@ -1,8 +1,8 @@
 
 
 
-![pic](pic.jpg =500x500)
-
+![pic](pic.jpg)
+#g =500x500
   
 Hello Peeps! 😀
 
