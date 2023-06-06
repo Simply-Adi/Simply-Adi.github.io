@@ -1,7 +1,7 @@
 
 
 
-![pic](pic.jpg)
+![pic](pic.jpg){:height="100px" width="100px"}
 
   
 Hello Peeps! 😀
