@@ -1,7 +1,7 @@
 
 
 
-![pic](pic.jpg =100x100)
+![pic](pic.jpg =500x500)
 
   
 Hello Peeps! 😀
