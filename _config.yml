@@ -2,3 +2,5 @@ theme: jekyll-theme-cayman
 avatar: pic.jpg
 title: Thangjam Aditya
 description: Welcome to my Website!
+image:
+  background: filename.png
