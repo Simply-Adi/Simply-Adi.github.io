@@ -2,7 +2,7 @@
 
 
 ![pic](pic.jpg)
-#g =500x500
+
   
 Hello Peeps! 😀
 
