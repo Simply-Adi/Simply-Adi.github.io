@@ -2,8 +2,8 @@
 
 
 ![pic](pic.jpg)
-Hello Peeps! 
-:smile: 
+Hello Peeps! 😀
+
 
 Here, I share glimpses of my journey into the World of Data Science and Energy Analytics. 
 
