@@ -10,7 +10,7 @@ Hello Peeps! 😀
 Here, I share glimpses of my journey into the World of Data Science and Energy Analytics. 
 
 
-
+🕵️
 Some of my key data sceince projects are as follows:
 
 1. [Predicting Insurance Claims](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/Insurance_Policy_Project.pdf)
