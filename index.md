@@ -17,7 +17,7 @@ Here, I share glimpses of my journey into the World of Data Science and Energy A
 3. Thangjam, A., Jaipuria, S., & Dadabada, P. K. (2023). Time-Varying approaches for Long-Term Electric Load Forecasting under economic shocks. Applied Energy, 333, 120602.
 . An overview of this paper is given [here](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/LTLF_economic_shocks_paper_deck.pptm)
 
-Other Musings:
+🚀 Other Musings:
 1. Spotify Playlist Prediction 
 
 
