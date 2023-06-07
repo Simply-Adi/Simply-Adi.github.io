@@ -13,12 +13,12 @@ Here, I share glimpses of my journey into the World of Data Science and Energy A
 🕵️Some of my key data sceince projects are as follows:
 
 1. [Predicting Insurance Claims](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/Insurance_Policy_Project.pdf)
-
-3. [Statitical analysis of electricity demand of North East Indian States](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/NE_India_ElectricityDemand_Drivers_Profiles.pdf)
-4. Thangjam, A., Jaipuria, S., & Dadabada, P. K. (2023). Time-Varying approaches for Long-Term Electric Load Forecasting under economic shocks. Applied Energy, 333, 120602.
+2. [Statitical analysis of electricity demand of North East Indian States](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/NE_India_ElectricityDemand_Drivers_Profiles.pdf)
+3. Thangjam, A., Jaipuria, S., & Dadabada, P. K. (2023). Time-Varying approaches for Long-Term Electric Load Forecasting under economic shocks. Applied Energy, 333, 120602.
 . An overview of this paper is given [here](https://github.com/Simply-Adi/Simply-Adi.github.io/blob/main/LTLF_economic_shocks_paper_deck.pptm)
 
-
+Other Musings:
+1. Spotify Playlist Prediction 
 
 
 ### Get in Touch
